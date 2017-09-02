@@ -1,6 +1,7 @@
 package mwittmann.partialcaseclasses
 
 import scala.annotation.StaticAnnotation
+import scala.collection.immutable
 import scala.meta._
 
 object Explorer {
@@ -20,10 +21,38 @@ object Explorer {
   }
 }
 
+
+
 object Partial {
 
-  def collectParams(terms: Seq[Term.Arg]): Seq[String] = {
-    println("Terms are: " + terms.map(Explorer.explore).mkString("\n"))
+  //def collectParams(terms: Seq[Term.Arg]): Seq[String] = {
+  def collectParams(annotationStat: Stat): Seq[String] = {
+    val q"new partial(..$terms)" = annotationStat
+//    val q"new partial($terms)" = annotationStat
+//    val q"new partial(List(..$terms))" = annotationStat
+//    val q"new partial(List($terms))" = annotationStat
+
+    println("Terms are:\n" + Explorer.explore(terms))
+    //println("Terms are:\n" + terms.map(Explorer.explore).mkString("\n"))
+
+    //    val q"Seq($terms2)" = terms
+//    println("Terms2: " + terms2)
+
+    //val q"List($li)" = terms
+
+    val seqArgs: immutable.Seq[Term.Arg] =
+      terms match {
+        case t @ scala.meta.Term.Apply(name: Term.Name, args) if name.value == "List" => args
+        case bad @ scala.meta.Term.Apply(_, _)  => throw new Exception(s"Can't use term $bad")
+        case bad                                => throw new Exception(s"Can't use weird thing $bad")
+      }
+
+    val partials = seqArgs.collect {
+      case q"Partial($name, $values)" => (name, values)
+      case bad => throw new Exception(s"Don't know how to use $bad")
+    }
+
+    println(s"Got partials: $partials")
 
     val collectedTerms: Seq[Any] =
       terms.collect {
@@ -42,18 +71,20 @@ object Partial {
     println(s"Collected variable names: ${collectedVariableNames}")
     collectedVariableNames
   }
-
 }
 
-class partial(args: Int) extends StaticAnnotation {
+case class Partial(name: String, variables: List[String])
+
+class partial(args: List[Partial]) extends StaticAnnotation {
 
   inline def apply(defn: Any): Any = meta {
-    this match {
-      case v: scala.meta.Stat => println(s"Got:\n${Explorer.explore(v)}")
-    }
+//    this match {
+//      case v: scala.meta.Stat => println(s"Got:\n${Explorer.explore(v)}")
+//    }
 
-    val q"new partial(..$terms)" = this
-    val paramNames = Partial.collectParams(terms).toSet
+//    val q"new partial(..$terms)" = this
+//    val paramNames = Partial.collectParams(terms).toSet
+    val paramNames = Partial.collectParams(this).toSet
 
     val q"case class $tName (..$params) extends $template" = defn
 

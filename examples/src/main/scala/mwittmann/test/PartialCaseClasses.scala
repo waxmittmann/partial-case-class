@@ -1,10 +1,14 @@
 package mwittmann.test
 
-import mwittmann.partialcaseclasses.partial
+import mwittmann.partialcaseclasses.{Partial, partial}
 
 object PartialCaseClasses {
 
-  @partial("a", "c")
+  //@partial("a", "c")
+  @partial(
+    Partial("DerivedA", List("a", "b")),
+    Partial("DerivedB", List("a", "c"))
+  )
   case class SomeCaseclass(a: String, b: Option[Int], c: List[String])
 
   def main(args: Array[String]): Unit = {
