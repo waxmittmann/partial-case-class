@@ -23,78 +23,95 @@ object Explorer {
 
 
 
-object Partial {
+object PartialDefnO {
 
-  //def collectParams(terms: Seq[Term.Arg]): Seq[String] = {
-  def collectParams(annotationStat: Stat): Seq[String] = {
+  def collectParams(annotationStat: Stat): Seq[(String, Seq[String])] = {
     val q"new partial(..$terms)" = annotationStat
-//    val q"new partial($terms)" = annotationStat
-//    val q"new partial(List(..$terms))" = annotationStat
-//    val q"new partial(List($terms))" = annotationStat
-
     println("Terms are:\n" + Explorer.explore(terms))
-    //println("Terms are:\n" + terms.map(Explorer.explore).mkString("\n"))
 
-    //    val q"Seq($terms2)" = terms
-//    println("Terms2: " + terms2)
+    val partials: Seq[(String, Seq[Term.Arg])] = terms.map {
+//      case q"PartialDefn($name, ..$terms)" => (name.value, terms)
+//      case q"PartialDefn($name, ..$terms)" => {
+      case q"PartialDefn($name, List(..$terms))" => {
+        println(s"Name is ${Explorer.explore(name)}")
 
-    //val q"List($li)" = terms
-
-    val seqArgs: immutable.Seq[Term.Arg] =
-      terms match {
-        case t @ scala.meta.Term.Apply(name: Term.Name, args) if name.value == "List" => args
-        case bad @ scala.meta.Term.Apply(_, _)  => throw new Exception(s"Can't use term $bad")
-        case bad                                => throw new Exception(s"Can't use weird thing $bad")
+        val x: (String, immutable.Seq[Term.Arg]) =
+          name match {
+            case n: scala.meta.Lit if n.value.isInstanceOf[String] => (n.value.asInstanceOf[String], terms)
+            case n: scala.meta.Lit => throw new Exception(s"Cannot use type ${n.getClass()} as name of case class. Must string!")
+            //case t"$n" => (n.`, terms)
+            case bad => throw new Exception (s"Failed to match to literal: ${Explorer.explore(bad)}")
+          }
+        x
       }
 
-    val partials = seqArgs.collect {
-      case q"Partial($name, $values)" => (name, values)
-      case bad => throw new Exception(s"Don't know how to use $bad")
+      //case bad => throw new Exception(s"Don't know how to use $bad\n${Explorer.explore(bad)}")
+      case bad => {
+        bad match {
+          case q"PartialDefn(<$name>, $any)" => throw new Exception("Matched 1")
+          case q"PartialDefn($any)"  => throw new Exception("Matched 2")
+          case q"PartialDefn($any1, ..$any2)"  => throw new Exception("Matched 2b")
+          case q"PartialDefn($any1, $any2)"  => throw new Exception("Matched 2c")
+          case q"PartialDefn(..$any)"  => throw new Exception("Matched 2d")
+          case q"$name($any)"  => throw new Exception("Matched 3")
+          case q"<$name>(..$any)"  => throw new Exception("Matched 4")
+          case q"$name(..$any)"  => throw new Exception("Matched 5")
+          //case q"<PartialDefn>($any)"  => throw new Exception("Matched 2")
+          case _  => throw new Exception("Matched 6")
+        }
+      }
     }
 
-    println(s"Got partials: $partials")
-
-    val collectedTerms: Seq[Any] =
-      terms.collect {
-        case t: scala.meta.Lit => t.value
-        case bad => throw new Exception(s"Cannot use term $bad")
-      }
-
-    println(s"Collected: $collectedTerms")
-
-    val collectedVariableNames: Seq[String] =
-      collectedTerms.collect {
-        case s: String => s
-        case bad => throw new Exception(s"Cannot use value $bad")
-      }
-
-    println(s"Collected variable names: ${collectedVariableNames}")
-    collectedVariableNames
+    val r = partials.map(v =>
+      (v._1,
+        v._2.collect {
+          case s: Lit if s.value.isInstanceOf[String] => s.value.asInstanceOf[String]
+          case s: Lit => throw new Exception(s"Expected String, got ${s.value}")
+          case s => throw new Exception(s"Expected Lit, got $s")
+        }
+      )
+    )
+    r
   }
 }
 
-case class Partial(name: String, variables: List[String])
+case class PartialDefn(name: String, variables: List[String])
 
-class partial(args: List[Partial]) extends StaticAnnotation {
+class partial(args: List[PartialDefn]) extends StaticAnnotation {
 
   inline def apply(defn: Any): Any = meta {
-//    this match {
-//      case v: scala.meta.Stat => println(s"Got:\n${Explorer.explore(v)}")
-//    }
-
-//    val q"new partial(..$terms)" = this
-//    val paramNames = Partial.collectParams(terms).toSet
-    val paramNames = Partial.collectParams(this).toSet
+    val paramNames: Seq[(String, Seq[String])] = PartialDefnO.collectParams(this)
 
     val q"case class $tName (..$params) extends $template" = defn
 
-    val derivedParams = params.filter(p => paramNames.contains(p.name.value))
+    val derivedClasses = paramNames.map { case (name, vars) =>
+      val varsSet = vars.toSet
+      val derivedParams = params.filter(p => varsSet.contains(p.name.value))
+      val newName: Type.Name = Type.Name(name)
+      val x: Defn.Class = q"case class $newName (..$derivedParams)"
+      x
+    }
 
-    val newName = tName.copy(tName.value + "_derived")
+    val derivedClasses2: immutable.Seq[Stat] = derivedClasses.map(_.asInstanceOf[Stat]).to[immutable.Seq]
 
-    q"""case class $tName (..$params) {
-        case class $newName (..$derivedParams)
+//    q"""case class $tName (..$params) {
+//        ${derivedClasses}
+//      }
+//     """
+
+    val x = q"""case class $tName (..$params) {
+        ..$derivedClasses2
       }
      """
+
+    x
+
+    //    val derivedParams = params.filter(p => paramNames.contains(p.name.value))
+//    val newName = tName.copy(tName.value + "_derived")
+
+//    q"""case class $tName (..$params) {
+//        case class $newName (..$derivedParams)
+//      }
+//     """
   }
 }
